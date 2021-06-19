@@ -1,0 +1,350 @@
+---
+title: "Mass-spec"
+output: html_document
+---
+
+
+```{PCA}
+suppressPackageStartupMessages(library(ade4))
+suppressPackageStartupMessages(library(ggrepel))
+suppressPackageStartupMessages(library(RColorBrewer))
+suppressPackageStartupMessages(library(grid))
+suppressPackageStartupMessages(library(gridExtra))
+suppressPackageStartupMessages(library(vegan))
+suppressPackageStartupMessages(library(ggpubr))
+suppressPackageStartupMessages(library(sva))
+
+mapfile='./design.txt'
+taxafile='./Calu3.txt' #For Huh7 cells, use the file named "Huh7.txt"
+
+dat = read.csv(taxafile, 
+               sep="\t",
+               row.names = 1,
+               check.names = F,
+               comment.char = "",
+               stringsAsFactors = F)
+
+
+data1 = read.table(mapfile,header = T,stringsAsFactors = F,sep='\t',comment.char = "",check.names = F)
+
+dat = dat[,data1[,1]]
+dat[is.na(dat)]=0
+
+
+data = dat
+data1[,2]=data1[,3]
+colnames(data1)[2] ="Group"
+data1$Group<-factor(data1$Group)
+
+
+incw = 1.5
+inlength = .1
+inlift = "Axis1"
+inright = "Axis2"
+newpalette<-colorRampPalette(brewer.pal(9,"Set1"))(12)
+newpalette<-c("#E41A1C", "#FF8200", "#FCC801", "#BCD401", "#58B53C", "#00835D",
+              "#59C3E1","#004896","#920882","#E05695", "#EFAEB9","#999999")
+
+
+data<-t(data)
+
+data.dudi <- dudi.pca(data, center=TRUE, scale=T, scan=F, nf=10)
+data2 <- data.dudi$li
+incw = as.double(incw)
+inlength = as.double(inlength)
+classified_c = as.character(unique(data1[,2]))
+
+
+adonis1<-adonis(t(dat) ~ data1[,2],permutations = 999,method = "euclidean")
+
+
+phenotype <- data1[,2]
+f=classified_c
+Type <- factor(phenotype,levels=f)
+m = data.dudi$li
+n = data.dudi$c1
+
+lift_data = m[as.character(inlift)]
+row.names(lift_data) = gsub(pattern = "[.]",replacement = "-",row.names(lift_data))
+right_data = m[as.character(inright)]
+row.names(right_data) = gsub(pattern = "[.]",replacement = "-",row.names(right_data))
+data.dudi$li = cbind(lift_data,right_data)
+num1 = substring(as.character(inlift),5,6)
+num2 = substring(as.character(inright),5,6)
+num1_data = n[paste("CS",num1,sep = '')]
+num2_data = n[paste("CS",num2,sep = '')]
+data.dudi$c1 = cbind(num1_data,num2_data)
+
+right_data_box= cbind(data1[,2],right_data)
+colnames(right_data_box)[1] = "Group" 
+lift_data_box = cbind(data1[,2],lift_data)
+colnames(lift_data_box)[1] = "Group" 
+
+
+d <- data.dudi$li
+eig <- ( data.dudi$eig / sum( data.dudi$eig ) )
+
+ggdata <- data.frame(d)
+
+p<-ggplot(ggdata) +
+  xlab("") +
+  ylab("") +
+  geom_vline(xintercept = 0) +
+  geom_hline(yintercept = 0) +
+  geom_point(aes(x=d[,1], y=d[,2], color=Type), size=3) +
+  scale_color_manual(values=newpalette)+
+  scale_fill_manual(values=newpalette)+
+  guides(color=guide_legend(colnames(data1)[2]),
+         fill=guide_legend(colnames(data1)[2]),
+         shape=guide_legend(colnames(data1)[2]) ) +
+  theme_classic()+
+  theme(panel.grid = element_blank(),
+        axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        legend.position=c(0.9,0.8),
+        text=element_text(
+          family="Helvetica",
+          face="bold",
+          colour="black",
+          size=9
+        ),
+        legend.title=element_text(
+          family="Helvetica",
+          colour="black",
+          size=6
+        ),
+        legend.text=element_text(
+          family="Helvetica",
+          colour="black",
+          size=10
+        )
+  )+xlim(min(d[,1], 0)*incw, max(d[,1])*incw)+ylim(min(d[,2], 0)*incw, max(d[,2])*incw)
+
+p <- ggplotGrob(p)
+
+
+right_data_box$Group = factor(right_data_box$Group, levels=f)
+
+d <- ggplot(right_data_box,aes(x = Group,y = right_data_box[,2],fill = Group))+
+  geom_boxplot(width = 0.5)+
+  theme_bw()+theme(panel.grid =element_blank())+
+  scale_fill_manual(values=newpalette,breaks =f)+
+  stat_compare_means()+
+  guides(fill=FALSE)+theme(axis.text.x = element_blank())+
+  theme(axis.ticks = element_blank(),
+        text=element_text(
+          family="Helvetica",
+          face="bold",
+          colour="black",
+          size=12
+        ))+
+  ylim(min(right_data_box[,2], 0)*incw, max(right_data_box[,2])*incw)+
+  xlab("")+ylab(paste("PC",num2," (",round(eig[as.numeric(num2)]*100,2),"%)",sep=""))
+
+lift_data_box$Group = factor(lift_data_box$Group, levels=f)
+
+b<- ggplot(lift_data_box,aes(x = Group,y = lift_data_box[,2],fill = Group))+
+  geom_boxplot(width = 0.5)+
+  theme_bw()+
+  theme(panel.grid =element_blank())+coord_flip()+
+  guides(fill=FALSE)+
+  theme(axis.text.y = element_blank())+
+  theme(axis.ticks = element_blank(),
+        text=element_text(
+          family="Helvetica",
+          face="bold",
+          colour="black",
+          size=12
+        ))+
+  scale_fill_manual(values=newpalette)+
+  stat_compare_means()+
+  ylim(min(lift_data_box[,2], 0)*incw, max(lift_data_box[,2])*incw)+
+  xlab("")+ylab(paste("PC",num1," (",round(eig[as.numeric(num1)]*100,2),"%)",sep=""))
+a<-ggplot()+theme_bw()+theme(panel.border = element_blank(),panel.grid =element_blank(),
+                             axis.text = element_blank(),axis.title = element_blank(),
+                             axis.ticks = element_blank())+
+  annotate("text", x=1, y=40, label=paste("P.value =",round(adonis1[[1]][6][[1]][1],4),'\n',
+                                          "R2      =",round(adonis1[[1]][5][[1]][1],4)), size=3.5)
+
+a <- ggplotGrob(a)
+d <- ggplotGrob(d)
+b <- ggplotGrob(b)
+
+
+pdf('./PCA.pdf',width = as.double(12), height = as.double(8))
+grid.arrange(d,p,a,b,ncol=2,widths=c(1,4),heights = c(4,1))
+
+dev.off()
+
+```
+
+```{Correlation analysis}
+design='./design.txt'
+protein= './Calu3.txt'
+
+library(amap)
+library(pheatmap)
+library(RColorBrewer)
+library(ggsci) 
+
+dat =read.table(protein, check.names = F,stringsAsFactors = F,sep='\t',header=T,row.names = 1)
+
+data1 = read.table(design,header = T,stringsAsFactors = F,sep='\t',comment.char = "",check.names = F)
+
+dat = dat[,data1[,1]]
+
+data1$group=factor(data1$group)
+data1$treatment=factor(data1$treatment)
+rownames(data1)=data1[,1]
+
+ann_colors=list(
+  treatment=c(T1="#E41A1C",T2= "#FF8200",T3= "#FCC801",T4= "#BCD401",T5= "#58B53C",T6= "#00835D",T7= "#59C3E1",T8= "#004896",T9="#920882",T10="#E05695",T11= "#EFAEB9",T12= "#999999"),
+ 
+  group=c(D="#FED439",E="#709AE1",F="#A6CF6B")
+
+)
+
+dat3<-dat
+dat3[is.na(dat3)]=0
+
+#correlation
+cor_r=as.matrix(Dist(t(dat),method="pearson"))
+cor_r=1-cor_r
+
+bk <- c(seq(0.9,1,by=0.001))
+
+
+pdf('./Corrleation.pdf',width = 8,height = 7)
+pheatmap(as.matrix(cor_r),
+         fontsize=6,annotation_col = data1[,2:3],annotation_colors = ann_colors,
+         clustering_method = "ward.D2",
+         border_color = FALSE,
+         c(colorRampPalette(colors = c("firebrick3","white"))(length(bk)/2),
+          colorRampPalette(colors = c("white","MidnightBlue"))(length(bk)/2))
+         
+)
+dev.off()
+    
+
+```
+
+```{ncrRNA-binding protein identified}
+library(fdrtool)
+mapfile='design.txt'
+taxafile='Calu3.txt'
+
+dat = read.csv(taxafile, 
+               sep="\t",
+               row.names = 1,
+               check.names = F,
+               stringsAsFactors = F)
+
+data1 = read.table(mapfile,header = T,stringsAsFactors = F,sep='\t',comment.char = "",check.names = F)
+
+dat = dat[,data1[,1]]
+dat = t(dat)
+
+difftaxa<-function(x,y){
+  result = matrix(rep("",ncol(x)*5),ncol(x),5)
+  colnames(result)<-c('proetin',substitute(x),substitute(y),'pvalue','Enrich')
+  for(i in c(1:ncol(x))){
+    t<-wilcox.test(x[,i],y[,i],paired=F)
+    
+    result[i,1]<-colnames(x)[i]
+    result[i,2]<-as.double(mean(x[,i],na.rm = T))
+    result[i,3]<-as.double(mean(y[,i],na.rm = T))
+    result[i,4]<-t$p.value
+    abundance<-result[i,2]
+    type2<-colnames(result)[2]
+    if(as.double(result[i,3])>as.double(abundance)){
+      abundance=result[i,3]
+      type2<-colnames(result)[3]
+    }
+    result[i,5]=type2
+    print(i)
+  }
+  return(result)
+}
+
+NRC1<-dat[data1[data1$treatment=="T1",]$prep,]
+NRC2<-dat[data1[data1$treatment=="T2",]$prep,]
+NRC3<-dat[data1[data1$treatment=="T3",]$prep,]
+NRC4<-dat[data1[data1$treatment=="T4",]$prep,]
+NRC5<-dat[data1[data1$treatment=="T5",]$prep,]
+NRC6<-dat[data1[data1$treatment=="T6",]$prep,]
+NRC7<-dat[data1[data1$treatment=="T7",]$prep,]
+NRC8<-dat[data1[data1$treatment=="T8",]$prep,]
+NRC9<-dat[data1[data1$treatment=="T9",]$prep,]
+NRC10<-dat[data1[data1$treatment=="T10",]$prep,]
+NRC11<-dat[data1[data1$treatment=="T11",]$prep,]
+NRC12<-dat[data1[data1$treatment=="T12",]$prep,]
+
+
+#Expample: Identify proteins interacted with NRC2
+result1<-difftaxa(NRC1,NRC2)
+
+result1<-data.frame(result1,check.names = F,stringsAsFactors = F)
+
+result1$pvalue<-as.numeric(result1$pvalue)
+result1$qvalue<-fdrtool(result1$pvalue,statistic = c("pvalue"),plot=F)$qval
+
+result1<-result1[order(result1$qvalue),]
+
+
+filename='NRC2.txt'
+
+write.table(result1,filename,quote=F,sep='\t')
+
+
+```
+
+```{GO enrichment}
+library(clusterProfiler)
+library(dplyr)
+library(msigdf)
+
+#prepare
+c5 <- msigdf.human %>% 
+  filter(category_code == "c5") %>% select(geneset, symbol) %>% as.data.frame
+#tranID uniprotID to symbol
+library(biomaRt)
+my_mart<-useMart('ENSEMBL_MART_ENSEMBL')
+my_dataset<-useDataset('hsapiens_gene_ensembl',mart=my_mart)
+
+#fileinput
+identity_file<-'Calu3.txt'
+diff_file<-'NRC2.diff.txt'
+group_file<-'design.txt'
+
+#readfile
+group<-read.table(group_file,sep='\t',header=T,row.names = 1,check.names = F,stringsAsFactors = F)
+group<-group[group$treatment=='T2',]
+
+identity<-read.table(identity_file,sep='\t',header=T,row.names = 1,check.names = F,stringsAsFactors = F)
+diff<-read.table(diff_file,sep='\t',header=T,check.names = F,stringsAsFactors = F,row.names = 1)
+diff$protein<-rownames(diff)
+
+identity<-identity[rownames(identity)%in%diff$protein,rownames(group)]
+
+identity$identity<-apply(identity,1,function(x)(mean(x,na.rm = T)))
+identity$protein<-diff$EntrezID[match(rownames(identity),diff$protein)]
+identity<-identity[order(identity$identity,decreasing = T),]
+
+
+#IDtrans
+myID<-getBM(attributes=c('hgnc_symbol','entrezgene_id'),filter='entrezgene_id',values=identity$protein,mart=my_dataset)
+myID<-myID[myID$hgnc_symbol!="",]
+identity$hgnc_symbol<-myID$hgnc_symbol[match(identity$protein,myID$entrezgene_id)]
+#enrich 
+y <- enricher(myID$hgnc_symbol, TERM2GENE = c5,pvalueCutoff = 0.05)
+
+
+
+library(enrichplot)
+dotplot(y, showCategory=30)
+write.table(y,'NRC2.enrichment.txt',quote=F,sep='\t')
+
+```
+
+
+
